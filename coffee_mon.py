@@ -4,18 +4,24 @@
 import sys
 import os
 import time
+import signal
+import hmac
 from functools import reduce
 from urllib.request import urlopen
 from urllib.parse   import urlencode
 from hx711 import HX711, GpioCleanup
 import traceback
 
+INIT_PARAM_1 = [450, 470]
+INIT_PARAM_2 = [8518041, 8568916]
+
 MAX_DEV = 2
 MAX_GRACE = 30
 MAX_PERIOD = 60
-OFF_VAL = [0, 20]
+OFF_VAL = [0, 0]
 
 UPD_URL = "https://ipmsg.org/cgi-bin/coffee-upd.cgi"
+COFFEE_MON_PSK = "coffee_mon.psk"
 
 class GravMon:
 	def __init__(self, target_list):
@@ -40,7 +46,7 @@ class GravMon:
 
 def upload(url, v):
 	try:
-		r = urlopen(url, data=urlencode(v).encode("utf-8"))
+		r = urlopen(url, data=urlencode(v).encode("utf-8"), timeout=10)
 		return	r.read().decode("utf-8")
 	except:
 		traceback.print_exc()
@@ -55,10 +61,10 @@ def need_upd(val, last_upd, lru, diff):
 		for x,y in zip(val, L):
 			max_diff = max(abs(x - y), max_diff)
 
+	if diff >= MAX_PERIOD:
+		return	True
+
 	if max_diff < MAX_GRACE:
-		if diff >= MAX_PERIOD:
-			print("period")
-			return	True
 		for x,y in zip(val, last_upd):
 			if abs(x-y) >= MAX_GRACE:
 				print("abs=%s" % abs(x-y))
@@ -66,19 +72,32 @@ def need_upd(val, last_upd, lru, diff):
 
 	return	False
 
+def get_medians(vals):
+	inv = tuple(zip(*vals))
+	return	[x for x in map(lambda x: sorted(x)[len(x)//2], inv)]
+
+def get_psk():
+	psk_path = os.path.join(os.path.dirname(sys.argv[0]), COFFEE_MON_PSK)
+	return	open(psk_path, "rb").read().strip()
+
+def get_hmac(v, psk):
+	hm = hmac.new(psk, v)
+	return	hm.hexdigest()
 
 def main():
+	signal.signal(signal.SIGHUP, signal.SIG_IGN)
 	gm = GravMon([[2,3], [4,14]])
 
-#	gm.init([450, 470], [8514653, 8567927])
-	gm.init([450, 470], [8518041, 8568916])
 #	gm.init([450, 470])
+	gm.init(INIT_PARAM_1, INIT_PARAM_2)
 
 	start = 0.0
-	max_lru = 5
+	max_lru = 8
 	last_upd = [0.0 * MAX_DEV]
 	lru = [[0.0] * MAX_DEV] * max_lru
 	lru_idx = 0
+
+	psk = get_psk()
 
 	while True:
 		try:
@@ -86,14 +105,18 @@ def main():
 			print("%10.1f %10.1f" % (val[0], val[1]))
 
 			cur = time.time()
-			if need_upd(val, last_upd, lru, cur - start):
-				start = cur
-				sval = [str(int(x[0] + x[1])) for x in zip(val, OFF_VAL)]
-				upload(UPD_URL, { "val": ",".join(sval) })
-				last_upd = val
+			lru[lru_idx % max_lru] = val
+			lru_idx += 1
 
-			lru[lru_idx] = val
-			lru_idx = (lru_idx + 1) % max_lru
+			if lru_idx >= max_lru and need_upd(val, last_upd, lru, cur - start):
+				med = get_medians(lru)
+				start = cur
+				val = [str(int(x[0] + x[1])) for x in zip(med, OFF_VAL)]
+				vals = ",".join(val)
+				upd_data = { "val": vals, "hmac": get_hmac(vals.encode(), psk) }
+				upload(UPD_URL, upd_data)
+				last_upd = med
+				print("upd %s" % upd_data)
 
 			gm.reset()
 			time.sleep(1)
@@ -101,6 +124,10 @@ def main():
 		except (KeyboardInterrupt, SystemExit):
 			GpioCleanup()
 			break
+
+		except:
+			traceback.print_exc()
+			time.sleep(1)
 
 main()
 

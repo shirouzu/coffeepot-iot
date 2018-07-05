@@ -5,6 +5,7 @@ import sys
 import os
 import time
 import psycopg2
+import hmac
 import cgi
 import cgitb
 cgitb.enable()
@@ -14,17 +15,30 @@ sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
 
 DB_NAME = "coffee-db"
 
+COFFEE_MON_PSK = "coffee_mon.psk"
+
 class Obj:
 	def __init__(self, **kw): self.__dict__.update(kw)
 	def __repr__(self): return "Obj: " + self.__dict__.__repr__()
 
+def get_psk():
+	psk_path = os.path.join(os.path.dirname(sys.argv[0]), COFFEE_MON_PSK)
+	return	open(psk_path, "rb").read().strip()
+
+def check_hmac(v, hm):
+	return	hmac.new(get_psk(), v).hexdigest() == hm
 
 def func():
 	print("""\r\n\r\n""")
 
 	try:
 		form = cgi.FieldStorage()
-		val = [int(x) for x in form["val"].value.split(",")]
+		vals = form["val"].value
+		hm = form["hmac"].value
+		if not check_hmac(vals.encode(), hm):
+			raise
+
+		val = [int(x) for x in vals.split(",")]
 
 		conn = psycopg2.connect(dbname=DB_NAME)
 		cur = conn.cursor()

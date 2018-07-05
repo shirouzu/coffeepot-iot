@@ -1,5 +1,6 @@
 ﻿#!/usr/bin/python3
 # -*- coding: utf-8 -*-
+# https://github.com/gandalf15/HX711/
 
 import RPi.GPIO as GPIO
 import time
