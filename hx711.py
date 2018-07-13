@@ -56,6 +56,7 @@ class HX711:
 
 	def read(self):
 		while not self.is_ready():
+			time.sleep(0.2)
 			#print("WAITING")
 			pass
 
