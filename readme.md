@@ -1,6 +1,6 @@
 # コーヒーポットIoT
 ## 概要
-See https://ipmsg.org/cgi-bin/coffee-mon.cgi
+https://shirouzu.jp/tech/coffeepot-iot.md
 
 ## ファイル説明
 ### ラズパイ側
