@@ -1,4 +1,7 @@
 # コーヒーポットIoT
+## 概要
+See https://ipmsg.org/cgi-bin/coffee-mon.cgi
+
 ## ファイル説明
 ### ラズパイ側
 1. coffee_mon.py ... 歪センサーの値を、外部サーバにアップロードするデーモン
