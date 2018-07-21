@@ -5,6 +5,7 @@ import sys
 import os
 import time
 import signal
+import json
 import hmac
 from functools import reduce
 from urllib.request import urlopen
@@ -12,8 +13,11 @@ from urllib.parse   import urlencode
 from hx711 import HX711, GpioCleanup
 import traceback
 
-INIT_PARAM_1 = [450, 470]
-INIT_PARAM_2 = [8518041, 8568916]
+#INIT_PARAM_1 = [450, 470]
+#INIT_PARAM_2 = [8518041, 8568916]
+
+INIT_PARAM_1 = [450, 450]
+INIT_PARAM_2 = [8500000, 8530000]
 
 MAX_DEV = 2
 MAX_GRACE = 30
@@ -111,8 +115,8 @@ def main():
 			if lru_idx >= max_lru and need_upd(val, last_upd, lru, cur - start):
 				med = get_medians(lru)
 				start = cur
-				val = [str(int(x[0] + x[1])) for x in zip(med, OFF_VAL)]
-				vals = ",".join(val)
+				data = [int(x[0] + x[1]) for x in zip(med, OFF_VAL)]
+				vals = json.dumps({ "data": data, "seed": int(time.time()) })
 				upd_data = { "val": vals, "hmac": get_hmac(vals.encode(), psk) }
 				upload(UPD_URL, upd_data)
 				last_upd = med

@@ -4,10 +4,12 @@
 import sys
 import os
 import time
+import json
 import psycopg2
 import hmac
 import cgi
 import cgitb
+import traceback
 cgitb.enable()
 
 os.environ['PYTHONIOENCODING'] = 'UTF-8'
@@ -38,21 +40,25 @@ def func():
 		if not check_hmac(vals.encode(), hm):
 			raise
 
-		val = [int(x) for x in vals.split(",")]
+		val = json.loads(vals)
+		data = val["data"]
+		seed = val["seed"]
+		if int(seed) + 60 < time.time(): # 本来は DB に単調増加値として比較＆記録する
+			raise
 
 		conn = psycopg2.connect(dbname=DB_NAME)
 		cur = conn.cursor()
 		t = int(time.time()*1000)
 
 		cur.execute("begin;")
-		for i, v in enumerate(val):
+		for i, v in enumerate(data):
 			cur.execute(
 				"insert into upd_tbl (date, val, devidx, ipaddr) values (%s,%s,%s,%s);",
 					(t, v, i, os.environ['REMOTE_ADDR']))
 		cur.execute("commit;");
 
 	except:
-		traceback.print_exc()
+		print(traceback.format_exc())
 		print(".")
 		return
 

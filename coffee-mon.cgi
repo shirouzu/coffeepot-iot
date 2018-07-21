@@ -7,6 +7,7 @@ import time
 import datetime
 import cgi
 from http import cookies
+import dateutil.parser
 import cgitb
 import random
 import psycopg2
@@ -20,15 +21,18 @@ cgitb.enable()
 MAX_DEVICE = 2
 MAX_VAL    = 1400
 MIN_VAL    = 210
-OFF_VAL    = [1310, 1270] #RAW
-COEF       = [(1250/650), (1250/600)] # 520/530
+OFF_VAL    = [1290, 1270] #RAW
+COEF       = [(1300/(700)), (1300/(500))]
 
 VOTE_TIME  = 8 * 60 * 60
 CMNT_TIME  = 96 * 60 * 60
 UPD_TIME   = 2 * 60 * 60
 GRAIN      = 30
 
-SCRIPT_VER = 19
+HEAD_MSG   = ""
+#HEAD_MSG  = "ASAHI-Freeパスワード変更対応中…"
+
+SCRIPT_VER = 21
 
 os.environ['PYTHONIOENCODING'] = 'UTF-8'
 sys.stdout = open(sys.stdout.fileno(), mode='w', encoding='utf8', buffering=1)
@@ -38,6 +42,8 @@ DB_NAME = "coffee-db"
 class Obj:
 	def __init__(self, **kw): self.__dict__.update(kw)
 	def __repr__(self): return "Obj: " + self.__dict__.__repr__()
+
+T = Obj(now=time.time())
 
 def get_db():
 	return	psycopg2.connect(dbname=DB_NAME)
@@ -63,13 +69,13 @@ def store_vote(db, coffee_id):
 
 		d = None
 		if v:
-			cur.execute("select count(id) from vote_tbl where id=%s and date>%s;",
-				[coffee_id, time_to_dbtime(v)])
+			cur.execute("select count(id) from vote_tbl where id=%s and date>%s and date<%s;",
+				[coffee_id, time_to_dbtime(v), time_to_dbtime(T.now)])
 			d = cur.fetchone()[0]
 
 		if not d:
 			cur.execute("insert into vote_tbl (date, id, ipaddr) values (%s,%s,%s);",
-					(time_to_dbtime(time.time()), coffee_id, os.environ['REMOTE_ADDR']))
+					(time_to_dbtime(T.now), coffee_id, os.environ['REMOTE_ADDR']))
 
 		cur.execute("commit;");
 
@@ -78,18 +84,18 @@ def store_vote(db, coffee_id):
 		cur.execute("abort;");
 
 def get_vote_start(db):
-	limit = int(time.time() - VOTE_TIME)
+	limit = int(T.now - VOTE_TIME)
 	try:
 		cur = db.cursor()
 		cur.execute(
-			"select date, val from upd_tbl where val>=%s and date>%s order by date desc limit 1;",
-			[real_to_raw(MIN_VAL, 0)+50, time_to_dbtime(limit)])
+			"select date, val from upd_tbl where val>=%s and date>%s and date<%s order by date desc limit 1;",
+			[real_to_raw(MIN_VAL, 0)+50, time_to_dbtime(limit), time_to_dbtime(T.now)])
 		v = cur.fetchone()
 		if v:
 			limit = dbtime_to_time(v[0])
 			#print("limit=%s val=%s %s" % (time.ctime(limit), v[1], real_to_raw(MIN_VAL, 0)))
-			cur.execute("select date from upd_tbl where date>%s order by date limit 1;",
-				[v[0],])
+			cur.execute("select date from upd_tbl where date>%s and date<%s order by date limit 1;",
+				[v[0], time_to_dbtime(T.now)])
 			v = cur.fetchone()
 			if v:
 				#print("limit2=%s" % time.ctime(dbtime_to_time(v[0])))
@@ -103,14 +109,14 @@ def get_vote_start(db):
 
 def get_vote(db, limit=VOTE_TIME):
 	num = 0
-	start = time.time() - limit
+	start = T.now - limit
 	try:
 		v = get_vote_start(db)
 		if v > start:
 			start = v
 
 		cur = db.cursor()
-		cur.execute("select count(id) from vote_tbl where date>%s;", [time_to_dbtime(start),])
+		cur.execute("select count(id) from vote_tbl where date>%s and date<%s;", [time_to_dbtime(start), time_to_dbtime(T.now)])
 		num = cur.fetchone()[0]
 
 	except:
@@ -125,11 +131,11 @@ def get_upd(db, limit=UPD_TIME):
 		last_val = [0] * MAX_DEVICE
 		ret = []
 		cur = db.cursor()
-		start = time.time() - limit
+		start = T.now - limit
 		for idx in range(MAX_DEVICE):
 			cur.execute(
-				"select date,val from upd_tbl where devidx=%s and date>%s order by date desc;",
-				[idx, time_to_dbtime(start)])
+				"select date,val from upd_tbl where devidx=%s and date>%s and date<%s order by date desc;",
+				[idx, time_to_dbtime(start), time_to_dbtime(T.now)])
 			val = []
 			for d in cur.fetchall():
 				v = [dbtime_to_time(d[0]), raw_to_real(d[1], idx)]
@@ -158,7 +164,7 @@ def store_cmnt(db, name, body):
 		cur = db.cursor()
 		cur.execute("begin;");
 		cur.execute("insert into cmnt_tbl (date, name, body, ipaddr) values (%s,%s,%s,%s);",
-					(time_to_dbtime(time.time()), name, body, os.environ['REMOTE_ADDR']))
+					(time_to_dbtime(T.now), name, body, os.environ['REMOTE_ADDR']))
 		cur.execute("commit;");
 
 	except:
@@ -169,8 +175,8 @@ def get_cmnt(db, limit=CMNT_TIME):
 	try:
 		cur = db.cursor()
 		cur.execute(
-			"select date, name, body from cmnt_tbl where date>%s order by date desc limit 10;",
-			[time_to_dbtime(time.time() - limit),])
+			"select date, name, body from cmnt_tbl where date>%s and date<%s order by date desc limit 10;",
+			[time_to_dbtime(T.now - limit), time_to_dbtime(T.now)])
 
 		ret = []
 		for d, name, body in cur.fetchall():
@@ -226,7 +232,7 @@ def cookie_proc():
 	return	ck, coffee_id
 
 
-def make_data(db):
+def make_data(db, need_update=True):
 	vals, last_date, raw_data = get_upd(db)
 	for idx in range(MAX_DEVICE):
 		targ = vals[idx]
@@ -245,14 +251,15 @@ def make_data(db):
 		"cmnt": get_cmnt(db),
 		"vals": vals,
 		"vote": get_vote(db),
-		"vote_disp": reduce(lambda x,y: x > y and x or y, last_vals) < MIN_VAL and 1 or 0,
+		"vote_disp": reduce(lambda x,y: x > y and x or y, last_vals) < MIN_VAL and need_update or 0,
 		"date": time.ctime(last_date),
-		"elaps": int(time.time() - last_date),
+		"elaps": int(T.now - last_date),
 		"last_update": get_lastdate(db),
+		"need_update": need_update,
 		"raw_data": raw_data,
-		"now": int(time.time()),
+		"now": int(T.now),
 		"device_monitor": is_windows_phone() and 1 or 0,
-		"notify_msg": "",
+		"notify_msg": HEAD_MSG,
 		"script_ver": SCRIPT_VER
 	})
 
@@ -286,12 +293,19 @@ def main():
 		if update:
 			if int(update) == get_lastdate(db):
 				print(json.dumps({
-					'now': int(time.time()),
+					'now': int(T.now),
 					'script_ver': SCRIPT_VER
 				}))
 			else:
 				print(make_data(db), end="")
 
+			return
+
+		date = form.getfirst("date", "")
+		if date:
+			T.now = int(dateutil.parser.parse(date).timestamp())
+			data = make_data(db, need_update=False)
+			print(HTML_DATA % (data, json.dumps(os.path.basename(sys.argv[0]))))
 			return
 
 	except:
@@ -517,7 +531,9 @@ HTML_DATA='''<html>
 	function start_func(d) {
 		script_ver = d.script_ver;
 		main_func(d);
-		setInterval(update_func, d.device_monitor ? 10000 : 30000);
+		if (d.need_update) {
+			setInterval(update_func, d.device_monitor ? 10000 : 30000);
+		}
 	}
 	google.charts.load('current', {'packages':['corechart']});
 	google.charts.setOnLoadCallback(function() { start_func(D); });
