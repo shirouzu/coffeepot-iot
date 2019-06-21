@@ -90,7 +90,7 @@ def get_hmac(v, psk):
 
 def main():
 	signal.signal(signal.SIGHUP, signal.SIG_IGN)
-	gm = GravMon([[2,3], [4,14]])
+	gm = GravMon([[4,14], [17,18]])
 
 #	gm.init([450, 470])
 	gm.init(INIT_PARAM_1, INIT_PARAM_2)
